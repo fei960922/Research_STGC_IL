@@ -1,0 +1,6 @@
+numpy
+pillow
+scipy
+progressbar2
+tensorflow-gpu
+
