@@ -38,19 +38,26 @@ def loadActionDemo(data_path, cut = -1):
         actions = actions[:cut, ...]
     return images, actions
 
-def SplitFrame(data_label, data_image, num_frame = 5, split_at = 0):
+def SplitFrame(data_label, data_image, resize_size = None, num_frame = 5, split_at = 0):
+
+    if resize_size is None:
+        resize_size = data_image.shape[1:2]
+    num_demo = data_image.shape[0]
+    img_temp = np.empty([num_demo] + resize_size + [data_image.shape[3]])
+    for i in range(num_demo):
+        img_temp[i, ...] = scipy.misc.imresize(data_image[i, ...], size=resize_size)
 
     if split_at == 0:
-        num_gif = data_image.shape[0] - num_frame + 1
+        num_gif = num_demo - num_frame + 1
         nf = np.arange(num_gif)
     else:
-        num_gif_ori = data_image.shape[0]//split_at
+        num_gif_ori = num_demo // split_at
         nf = np.concatenate([np.arange(i*split_at, (i+1)*split_at - num_frame + 1) for i in range(num_gif_ori)])
         num_gif = len(nf)
-    shape = [num_gif, num_frame] + list(data_image.shape[1:])
+    shape = [num_gif, num_frame] + list(img_temp.shape[1:])
     data_output = np.empty(shape)
     for i,j in enumerate(nf):
-        data_output[i,...] = data_image[j:(j+num_frame), ...]
+        data_output[i,...] = img_temp[j:(j+num_frame), ...]
     return data_label[nf + num_frame - 1,...], data_output
 
 def evaluate_direct(predicted_label, truth_label):

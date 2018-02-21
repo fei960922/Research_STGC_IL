@@ -16,33 +16,34 @@ def main():
     parser.add_argument('-num_frames', type=int, default=3, help='number of frames used in training data')
     parser.add_argument('-lr', type=float, default=0.001, help='learning rate')
     parser.add_argument('-beta1', type=float, default=0.5, help='momentum1 in Adam')
-    parser.add_argument('-net_type', type=str, default='STG_3_demo_2', help='Net type')
+    parser.add_argument('-net_type', type=str, default='STG_3_demo_4', help='Net type')
     parser.add_argument('-dense_layer', type=float, default=1, help='Net type')
+    parser.add_argument('-action_cold_start', type=int, default=1, help='Net type')
 
 
     # langevin hyper-parameters
     parser.add_argument('-delta', '--step_size', type=float, default=0.3)
-    parser.add_argument('-sample_steps', type=int, default=20)
+    parser.add_argument('-sample_steps', type=int, default=30)
 
     # misc
     parser.add_argument('-output_dir', type=str, default='./output', help='output directory')
     parser.add_argument('-category', type=str, default='demo_0')
-    parser.add_argument('-data_path', type=str,
-                        default='./training_demo', help='root directory of data')
+    parser.add_argument('-data_path', type=str, default='./training_demo', help='root directory of data')
     parser.add_argument('-log_step', type=int, default=20, help='number of steps to output synthesized image')
+    
+    parser.add_argument('-model_path', type=str, default='output/demo_4_coldstart_withscale/model/model.ckpt-495', help='root directory of data')
 
     opt = parser.parse_args()
 
     # Prepare training data
-    train_img, train_label = loadActionDemo(opt.data_path, 800)
+    train_img, train_label = loadActionDemo(opt.data_path, 100)
     # Split 8000 Frame into multiple small snap
     num_gif = 100
     train_label, train_img = SplitFrame(train_label, train_img, opt.num_frames, num_gif)
-    model_path = "output/demo_2/model/model.ckpt-480"
 
     with tf.Session() as sess:
         model = STGConvnet(sess, opt)
-        score, predicted_action = model.test(model_path, train_img, train_label)
+        score, energy, predicted_action = model.test(opt.model_path, train_img, train_label)
 
     mp.plot(predicted_action[:,0])
     mp.show()
