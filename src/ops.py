@@ -13,6 +13,9 @@ def conv2d(input_, output_dim, k_h=5, k_w=5, d_h=2, d_w=2, stddev=0.02, name="co
 def conv3d_relu(input_, output_dim, kernal=(5, 5, 5), strides=(2, 2, 2), padding='SAME', stddev=0.001, name="conv3d"):
 	return tf.nn.relu(conv3d(input_, output_dim, kernal, strides, padding, stddev, name))
 
+def conv3d_leaky_relu(input_, output_dim, kernal=(5, 5, 5), strides=(2, 2, 2), padding='SAME', stddev=0.001, name="conv3d"):
+	return tf.nn.leaky_relu(conv3d(input_, output_dim, kernal, strides, padding, stddev, name))
+
 def conv3d(input_, output_dim, kernal=(5, 5, 5), strides=(2, 2, 2), padding='SAME', stddev=0.001, name="conv3d"):
 	if type(kernal) == list or type(kernal) == tuple:
 		[k_d, k_h, k_w] = list(kernal)

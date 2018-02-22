@@ -40,16 +40,29 @@ class STGConvnet(object):
 
     def descriptor(self, inputs, reuse=False, input_action=None, dense_layer=True):
         with tf.variable_scope('des', reuse=reuse):
-            if self.net_type == 'STG_3xzz':
+            if self.net_type == 'STG_5_xzz':
                 # STG_action V0.4 20180217
-                conv1 = conv3d_relu(inputs, 60, (3, 7, 7), strides=(1, 3, 3), padding="SAME", name="conv1")
-                conv2 = conv3d_relu(conv1, 60, (3, 5, 5), strides=(1, 2, 3), padding=(0, 0, 0), name="conv2")
-                conv3 = conv3d_relu(conv2, 37, (1, 17, 21), strides=(1, 2, 2), padding=(0, 0, 0), name="conv3")
+                conv1 = conv3d_leaky_relu(inputs, 50, (3, 5, 5), strides=(1, 2, 3), padding="VALID", name="conv1")
+                conv2 = conv3d_leaky_relu(conv1, 50, (3, 5, 5), strides=(1, 2, 2), padding=(0, 0, 0), name="conv2")
+                conv3 = conv3d_leaky_relu(conv2, 27, (1, 11, 14), strides=(1, 2, 2), padding=(0, 0, 0), name="conv3")
                 if input_action is not None:
                     conv3 = tf.concat([input_action, tf.layers.flatten(conv3)], 1)
-                    dense = tf.layers.dense(conv3, 1, activation=tf.nn.tanh, name="dense/w")
+                    dense1 = tf.layers.dense(conv3, 256, activation=tf.nn.tanh, name="dense1/w")
+                    dense2 = tf.layers.dense(dense1, 128, activation=tf.nn.tanh, name="dense2/w")
+                    dense = tf.layers.dense(dense2, 1, activation=tf.nn.tanh, name="dense/w")
                     return dense
-            if self.net_type == 'STG_5_demo_5':
+            if self.net_type == 'STG_5_V1.1':
+                """
+                STG_action V1.1 20180220 V1.0 + leaky relu
+                """
+                conv1 = conv3d_leaky_relu(inputs, 50, (3, 5, 5), strides=(1, 2, 3), padding="VALID", name="conv1")
+                conv2 = conv3d_leaky_relu(conv1, 50, (3, 5, 5), strides=(1, 2, 2), padding=(0, 0, 0), name="conv2")
+                conv3 = conv3d_leaky_relu(conv2, 27, (1, 11, 14), strides=(1, 2, 2), padding=(0, 0, 0), name="conv3")
+                if input_action is not None:
+                    conv3 = tf.concat([input_action, tf.layers.flatten(conv3)], 1)
+                    dense = tf.layers.dense(conv3, 1, activation=None, name="dense/w")
+                    return dense
+            if self.net_type == 'STG_5_V1':
                 """
                 STG_action V1.0 20180220 After V1.0, the image input will be 5 frame, 55*100*3
                 """
@@ -194,12 +207,6 @@ class STGConvnet(object):
 
         # if np.max(train_img) > 1:
         #     train_img = train_img / 255
-        trick1=128.
-        trick2=trick1/0.3
-        if np.max(train_label) < 1:
-            train_label[:,0] = train_label[:,0] * trick1 + trick1
-            train_label[:, 1] = train_label[:, 1] * trick1*2
-            train_label[:, 2] = (0.5-train_label[:, 2]) * trick2
         img_mean = train_img.mean()
         train_img = train_img - img_mean
         print(train_img.shape)
@@ -220,8 +227,6 @@ class STGConvnet(object):
             tf.reduce_mean(self.syn,axis=0),tf.reduce_mean(self.obs,axis=0))
         recon_err_mean_2, recon_err_update_2 = tf.contrib.metrics.streaming_mean_squared_error(
             tf.reduce_mean(self.syn_action, axis=0), tf.reduce_mean(self.obs_action, axis=0))
-        recon_err_mean = recon_err_mean_1 + recon_err_mean_2
-        recon_err_update = recon_err_update_1 + recon_err_update_2
 
         print('Network Established')
         dLdI = tf.gradients(syn_res, self.syn)[0]
@@ -257,7 +262,8 @@ class STGConvnet(object):
         sample_action = np.random.normal(size = [sample_size, self.action_size])
 
         tf.summary.scalar('train_loss', train_loss_mean)
-        tf.summary.scalar('reconstruction_err', recon_err_mean)
+        tf.summary.scalar('reconstruction_error_image', recon_err_mean_1)
+        tf.summary.scalar('reconstruction_error_action', recon_err_mean_2)
         summary_op = tf.summary.merge_all()
 
         saver = tf.train.Saver(max_to_keep=50)
@@ -282,8 +288,8 @@ class STGConvnet(object):
                 grad = self.sess.run([des_grads, update_grads, train_loss_update],
                                      feed_dict={self.obs: obs_data, self.obs_action: obs_action,
                                                 self.syn: syn, self.syn_action: syn_action})[0]
-                self.sess.run(recon_err_update, feed_dict={self.obs: obs_data, self.obs_action: obs_action,
-                                                           self.syn: syn, self.syn_action: syn_action})
+                self.sess.run(recon_err_update_1, feed_dict={self.obs: obs_data, self.syn: syn})
+                self.sess.run(recon_err_update_2, feed_dict={self.obs_action: obs_action, self.syn_action: syn_action})
                 if self.state_cold_start==0:
                     sample_video[i * self.num_chain:(i + 1) * self.num_chain] = syn
                 if self.action_cold_start==0:
@@ -293,8 +299,9 @@ class STGConvnet(object):
             self.pbar.finish()
 
             self.sess.run(apply_grads)
-            [loss, recon_err, summary] = self.sess.run([train_loss_mean, recon_err_mean, summary_op])
-            print('Epoch #%d, descriptor loss: %.4f, SSD weight: %4.4f, Avg MSE: %4.4f' % (epoch, loss, float(np.mean(gradients)), recon_err))
+            [loss, re1, re2, summary] = self.sess.run([train_loss_mean, recon_err_mean_1, recon_err_mean_2, summary_op])
+            print('Epoch #%d, loss: %.4f, SSD w: %4.4f, Avg MSE (img, action): (%4.4f, %4.4f)'
+                  % (epoch, loss, float(np.mean(gradients)), re1, re2))
             writer.add_summary(summary, epoch)
 
             if epoch % self.log_step == 0:

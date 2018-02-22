@@ -41,7 +41,7 @@ def loadActionDemo(data_path, cut = -1):
 def SplitFrame(data_label, data_image, resize_size = None, num_frame = 5, split_at = 0):
 
     if resize_size is None:
-        resize_size = data_image.shape[1:2]
+        resize_size = [data_image.shape[1:2]]
     num_demo = data_image.shape[0]
     img_temp = np.empty([num_demo] + resize_size + [data_image.shape[3]])
     for i in range(num_demo):
