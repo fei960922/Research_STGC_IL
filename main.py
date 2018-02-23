@@ -8,7 +8,7 @@ def main():
 
     # training hyper-parameters
     parser.add_argument('-num_epochs', type=int, default=500)
-    parser.add_argument('-batch_size', type=int, default=64)
+    parser.add_argument('-batch_size', type=int, default=128)
     parser.add_argument('-num_chain', type=int, default=30, help='number of synthesized results for each batch of training data')
     parser.add_argument('-num_frames', type=int, default=5, help='number of frames used in training data')
     parser.add_argument('-lr', type=float, default=0.001, help='learning rate')
@@ -20,7 +20,7 @@ def main():
 
     # langevin hyper-parameters
     parser.add_argument('-delta', '--step_size', type=float, default=0.3)
-    parser.add_argument('-sample_steps', type=int, default=30)
+    parser.add_argument('-sample_steps', type=int, default=20)
 
     # misc
     parser.add_argument('-output_dir', type=str, default='./output', help='output directory')
@@ -45,7 +45,9 @@ def main():
 
     train_label, train_img = SplitFrame(train_label, train_img, resize_size, opt.num_frames, num_gif)
 
-    with tf.Session() as sess:
+    config = tf.ConfigProto(gpu_options=tf.GPUOptions(per_process_gpu_memory_fraction=0.4))
+
+    with tf.Session(config=config) as sess:
         model = STGConvnet(sess, opt)
         model.train(train_img, train_label)
 

@@ -3,6 +3,7 @@ from __future__ import division
 import tensorflow as tf
 import numpy as np
 import os
+import matplotlib.pyplot as mp
 from .ops import *
 from .util import *
 from progressbar import ETA, Bar, Percentage, ProgressBar
@@ -47,10 +48,46 @@ class STGConvnet(object):
                 conv3 = conv3d_leaky_relu(conv2, 27, (1, 11, 14), strides=(1, 2, 2), padding=(0, 0, 0), name="conv3")
                 if input_action is not None:
                     conv3 = tf.concat([input_action, tf.layers.flatten(conv3)], 1)
-                    dense1 = tf.layers.dense(conv3, 256, activation=tf.nn.tanh, name="dense1/w")
+                    dense1 = tf.layers.dense(conv3, 128, activation=tf.nn.tanh, name="dense1/w")
                     dense2 = tf.layers.dense(dense1, 128, activation=tf.nn.tanh, name="dense2/w")
                     dense = tf.layers.dense(dense2, 1, activation=tf.nn.tanh, name="dense/w")
                     return dense
+            if self.net_type == 'STG_5_V1.3-2':
+                """
+                STG_action V1.3 20180220 V1.2 + concat less.
+                """
+                conv1 = conv3d_leaky_relu(inputs, 120, (3, 5, 5), strides=(1, 2, 3), padding="VALID", name="conv1")
+                conv2 = conv3d_leaky_relu(conv1, 30, (3, 5, 5), strides=(1, 2, 2), padding=(0, 0, 0), name="conv2")
+                conv3 = conv3d_leaky_relu(conv2, 6, (1, 11, 14), strides=(1, 2, 2), padding=(0, 0, 0), name="conv3")
+                if input_action is not None:
+                    conv3 = tf.concat([input_action, tf.layers.flatten(conv3)], 1)
+                    dense1 = tf.layers.dense(conv3, 50, activation=tf.nn.leaky_relu, name="dense1/w")
+                    dense2 = tf.layers.dense(dense1, 1, activation=tf.nn.leaky_relu, name="dense2/w")
+                    return dense2
+            if self.net_type == 'STG_5_V1.3':
+                """
+                STG_action V1.3 20180220 V1.2 + concat less.
+                """
+                conv1 = conv3d_leaky_relu(inputs, 120, (3, 5, 5), strides=(1, 2, 3), padding="VALID", name="conv1")
+                conv2 = conv3d_leaky_relu(conv1, 30, (3, 5, 5), strides=(1, 2, 2), padding=(0, 0, 0), name="conv2")
+                conv3 = conv3d_leaky_relu(conv2, 3, (1, 11, 14), strides=(1, 2, 2), padding=(0, 0, 0), name="conv3")
+                if input_action is not None:
+                    conv3 = tf.concat([input_action, tf.layers.flatten(conv3)], 1)
+                    dense1 = tf.layers.dense(conv3, 50, activation=tf.nn.leaky_relu, name="dense1/w")
+                    dense2 = tf.layers.dense(dense1, 1, activation=tf.nn.leaky_relu, name="dense2/w")
+                    return dense2
+            if self.net_type == 'STG_5_V1.2':
+                """
+                STG_action V1.2 20180220 V1.1 + more fc layer
+                """
+                conv1 = conv3d_leaky_relu(inputs, 50, (3, 5, 5), strides=(1, 2, 3), padding="VALID", name="conv1")
+                conv2 = conv3d_leaky_relu(conv1, 50, (3, 5, 5), strides=(1, 2, 2), padding=(0, 0, 0), name="conv2")
+                conv3 = conv3d_leaky_relu(conv2, 27, (1, 11, 14), strides=(1, 2, 2), padding=(0, 0, 0), name="conv3")
+                if input_action is not None:
+                    conv3 = tf.concat([input_action, tf.layers.flatten(conv3)], 1)
+                    dense1 = tf.layers.dense(conv3, 50, activation=tf.nn.leaky_relu, name="dense1/w")
+                    dense2 = tf.layers.dense(dense1, 1, activation=tf.nn.leaky_relu, name="dense2/w")
+                    return dense2
             if self.net_type == 'STG_5_V1.1':
                 """
                 STG_action V1.1 20180220 V1.0 + leaky relu
@@ -199,6 +236,10 @@ class STGConvnet(object):
                 grad_action = self.sess.run(gradient_a, feed_dict={self.syn: samples, self.syn_action: sample_a})
                 sample_a = sample_a - 0.5 * self.step_size * self.step_size * \
                     (sample_a - grad_action) + self.step_size * noise
+            mp.clf()
+            mp.plot(sample_a[:, 0])
+            mp.plot(samples[:, 0,0,0])
+            mp.pause(0.001)
             if self.pbar is not None:
                 self.pbar.update(batch_id * self.sample_steps + i)
         return samples, sample_a
@@ -321,6 +362,7 @@ class STGConvnet(object):
         assert (n_test == test_label.shape[0]), "Img and Label size mismatch."
 
         self.image_size = list(test_img.shape[1:])
+        print(self.image_size)
         # Create some variables.
         self.obs = tf.placeholder(shape=[None] + self.image_size, dtype=tf.float32)
         self.syn = tf.placeholder(shape=[n_test] + self.image_size, dtype=tf.float32)

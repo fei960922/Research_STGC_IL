@@ -16,7 +16,7 @@ def main():
     parser.add_argument('-num_frames', type=int, default=5, help='number of frames used in training data')
     parser.add_argument('-lr', type=float, default=0.001, help='learning rate')
     parser.add_argument('-beta1', type=float, default=0.5, help='momentum1 in Adam')
-    parser.add_argument('-net_type', type=str, default='STG_5_V1', help='Net type')
+    parser.add_argument('-net_type', type=str, default='STG_5_V1.3', help='Net type')
     parser.add_argument('-dense_layer', type=float, default=1, help='Net type')
     parser.add_argument('-action_cold_start', type=int, default=1, help='Whether use cold start on action')
     parser.add_argument('-state_cold_start', type=int, default=0, help='Whether use cold start on state')
@@ -32,23 +32,23 @@ def main():
     parser.add_argument('-data_path', type=str, default='./training_demo', help='root directory of data')
     parser.add_argument('-log_step', type=int, default=30, help='number of steps to output synthesized image')
     
-    parser.add_argument('-model_path', type=str, default='output/V1_warmstart/model/model.ckpt-480', help='root directory of data')
+    parser.add_argument('-model_path', type=str, default='V1_warmstart', help='root directory of data')
 
     opt = parser.parse_args()
+    opt.model_path = 'output/' + opt.model_path + '/model/model.ckpt-480'
 
     # Prepare training data
     train_img, train_label = loadActionDemo(opt.data_path, 100)
     # Split 8000 Frame into multiple small snap
     num_gif = 100
-    resize_size = [110,200]
+    resize_size = [55,100]
     train_label, train_img = SplitFrame(train_label, train_img, resize_size, opt.num_frames, num_gif)
-
+    mp.show()
     with tf.Session() as sess:
         model = STGConvnet(sess, opt)
         score, energy, predicted_action = model.test(opt.model_path, train_img, train_label)
 
     mp.plot(predicted_action[:,0])
-    mp.show()
 
     # Later, launch the model, use the saver to restore variables from disk, and
     # do some work with the model.
