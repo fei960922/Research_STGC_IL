@@ -65,6 +65,16 @@ def evaluate_direct(predicted_label, truth_label):
     score = ((predicted_label - truth_label)**2).sum()
     return score
 
+def final_save(samples, category):
+
+    [num_video, num_frames, image_size, _, _] = samples.shape
+    if num_video > 60:
+        idx = np.concatenate([np.arange(4) + i*30 for i in range(num_video//30)])
+    else:
+        idx = np.arange(num_video)
+    saved_img = img2cell(np.concatenate(samples[idx, ...], axis=0))
+    scipy.misc.imsave("output_total/%s_final.png" % (category), saved_img)
+
 # Inherited from STGConvnet
 def loadVideoToFrames(data_path, syn_path, ffmpeg_loglevel = 'quiet'):
     videos = [f for f in os.listdir(data_path) if f.endswith(".avi") or f.endswith(".mp4")]

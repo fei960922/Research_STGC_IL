@@ -20,11 +20,13 @@ def main():
 
     # langevin hyper-parameters
     parser.add_argument('-delta', '--step_size', type=float, default=0.3)
+    parser.add_argument('-action_delta', '--action_step_size', type=float, default=0.3)
     parser.add_argument('-sample_steps', type=int, default=20)
+    parser.add_argument('-action_sample_steps', type=int, default=3)
 
     # misc
     parser.add_argument('-output_dir', type=str, default='./output', help='output directory')
-    parser.add_argument('-category', type=str, default='demo_0')
+    parser.add_argument('-category', type=str, default='test')
     parser.add_argument('-data_path', type=str,
                         default='./training_demo', help='root directory of data')
     parser.add_argument('-log_step', type=int, default=20, help='number of steps to output synthesized image')
@@ -32,16 +34,21 @@ def main():
     opt = parser.parse_args()
 
     # Prepare training data
-    train_img, train_label = loadActionDemo(opt.data_path, 100)
+    train_img, train_label = loadActionDemo(opt.data_path, 800)
     # Split 8000 Frame into multiple small snap
     num_gif = 100
     resize_size = [55,100]
-    play_scale_trick_xxz = True
+    play_scale_trick_xxz = False
+    play_scale_trick_xyf = True
 
     if play_scale_trick_xxz:
         train_label[:, 0] = (train_label[:, 0] + 0.3) / 0.6 * 255
         train_label[:, 1] = train_label[:, 1] / 0.6 * 255
         train_label[:, 2] = train_label[:, 2] / 0.5 * 255
+    if play_scale_trick_xyf:
+        train_label[:, 0] = (train_label[:, 0] + 0.3) / 0.6
+        train_label[:, 1] = train_label[:, 1] / 0.6
+        train_label[:, 2] = train_label[:, 2] / 0.5
 
     train_label, train_img = SplitFrame(train_label, train_img, resize_size, opt.num_frames, num_gif)
 

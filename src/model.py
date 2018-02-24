@@ -13,8 +13,6 @@ class STGConvnet(object):
     def __init__(self, sess, config):
         self.sess = sess
         self.net_type = config.net_type
-        self.action_size = 3
-        self.action_cold_start = config.action_cold_start
         self.state_cold_start = config.state_cold_start
         self.batch_size = config.batch_size
         self.dense_layer = config.dense_layer
@@ -26,6 +24,12 @@ class STGConvnet(object):
         self.step_size = config.step_size
         self.sample_steps = config.sample_steps
 
+        self.action_step_size = config.action_step_size
+        self.action_sample_steps = config.action_sample_steps * self.sample_steps
+        self.action_size = 3
+        self.action_cold_start = config.action_cold_start
+
+        self.category = config.category
         self.data_path = os.path.join(config.data_path)  # , config.category)
         self.log_step = config.log_step
         self.output_dir = os.path.join(config.output_dir, config.category)
@@ -77,7 +81,7 @@ class STGConvnet(object):
                     dense2 = tf.layers.dense(dense1, 1, activation=tf.nn.leaky_relu, name="dense2/w")
                     return dense2
             if self.net_type == 'STG_5_V1.2':
-                """
+                """ 
                 STG_action V1.2 20180220 V1.1 + more fc layer
                 """
                 conv1 = conv3d_leaky_relu(inputs, 50, (3, 5, 5), strides=(1, 2, 3), padding="VALID", name="conv1")
@@ -175,10 +179,8 @@ class STGConvnet(object):
                 """
                 conv1 = conv3d(inputs, 120, (3, 7, 7), strides=(1, 3, 3), padding="SAME", name="conv1")
                 conv1 = tf.nn.relu(conv1)
-
                 conv2 = conv3d(conv1, 30, (3, 30, 30), strides=(1, 2, 3), padding=(0, 0, 0), name="conv2")
                 conv2 = tf.nn.relu(conv2)
-
                 conv3 = conv3d(conv2, 5, (1, 6, 9), strides=(1, 2, 2), padding=(0, 0, 0), name="conv3")
                 conv3 = tf.nn.relu(conv3)
             elif self.net_type == 'ST':
@@ -221,7 +223,6 @@ class STGConvnet(object):
                 conv3 = tf.nn.relu(conv3)
             else:
                 return NotImplementedError
-
             return conv3
 
     def langevin_dynamics(self, samples, sample_a, gradient, gradient_a, batch_id,
@@ -232,13 +233,13 @@ class STGConvnet(object):
                 grad = self.sess.run(gradient, feed_dict={self.syn: samples, self.syn_action: sample_a})
                 samples = samples - 0.5 * self.step_size * self.step_size * (samples - grad) + self.step_size * noise
             if update_action:
-                noise = np.random.randn(*sample_a.shape)
-                grad_action = self.sess.run(gradient_a, feed_dict={self.syn: samples, self.syn_action: sample_a})
-                sample_a = sample_a - 0.5 * self.step_size * self.step_size * \
-                    (sample_a - grad_action) + self.step_size * noise
+                for j in range(self.action_sample_steps):
+                    noise = np.random.randn(*sample_a.shape)
+                    grad_action = self.sess.run(gradient_a, feed_dict={self.syn: samples, self.syn_action: sample_a})
+                    sample_a = sample_a - 0.5 * self.action_step_size * self.action_step_size * \
+                        (sample_a - grad_action) + self.action_step_size * noise
             mp.clf()
-            mp.plot(sample_a[:, 0])
-            mp.plot(samples[:, 0,0,0])
+            mp.hist(sample_a)
             mp.pause(0.001)
             if self.pbar is not None:
                 self.pbar.update(batch_id * self.sample_steps + i)
@@ -300,7 +301,9 @@ class STGConvnet(object):
                 single_grid = single_grid.mean(axis=0).mean(axis=(1,2), keepdims=1)\
                     .repeat(train_img.shape[2], axis=1).repeat(train_img.shape[3], axis=2)
                 sample_video[i * self.num_chain:(i+1) * self.num_chain] = np.tile(single_grid, (self.num_chain,1,1,1,1))
-        sample_action = np.random.normal(size = [sample_size, self.action_size])
+                final_save(sample_video + img_mean, self.category)
+
+        sample_action = np.random.normal(scale=0.2, loc=0.3, size = [sample_size, self.action_size])
 
         tf.summary.scalar('train_loss', train_loss_mean)
         tf.summary.scalar('reconstruction_error_image', recon_err_mean_1)
@@ -346,15 +349,15 @@ class STGConvnet(object):
             writer.add_summary(summary, epoch)
 
             if epoch % self.log_step == 0:
-                if not os.path.exists(self.sample_dir):
-                    os.makedirs(self.sample_dir)
-                saveSampleSequence(sample_video + img_mean, self.sample_dir, epoch, col_num=10)
-
                 if not os.path.exists(self.model_dir):
                     os.makedirs(self.model_dir)
                 saver.save(self.sess, "%s/%s" % (self.model_dir, 'model.ckpt'), global_step=epoch)
-
                 saveSampleVideo(sample_video + img_mean, self.result_dir, global_step=epoch)
+
+        print('Finished!!!!!!')
+        saver.save(self.sess, "%s/%s" % (self.model_dir, 'model.ckpt'), global_step=self.num_epochs)
+        final_save(sample_video + img_mean, self.category)
+
 
     def test(self, model_path, test_img, test_label):
 
