@@ -56,6 +56,18 @@ class STGConvnet(object):
                     dense2 = tf.layers.dense(dense1, 128, activation=tf.nn.tanh, name="dense2/w")
                     dense = tf.layers.dense(dense2, 1, activation=tf.nn.tanh, name="dense/w")
                     return dense
+            if self.net_type == 'STG_5_V1.5':
+                """
+                STG_action V1.5 20180220 V1.2 + concat less + more fc before concat
+                """
+                conv1 = conv3d_leaky_relu(inputs, 120, (3, 5, 5), strides=(1, 2, 3), padding="VALID", name="conv1")
+                conv2 = conv3d_leaky_relu(conv1, 30, (3, 5, 5), strides=(1, 2, 2), padding=(0, 0, 0), name="conv2")
+                conv3 = conv3d_leaky_relu(conv2, 6, (1, 11, 14), strides=(1, 2, 2), padding=(0, 0, 0), name="conv3")
+                if input_action is not None:
+                    conv3 = tf.concat([input_action, tf.layers.flatten(conv3)], 1)
+                    dense1 = tf.layers.dense(conv3, 50, activation=tf.nn.leaky_relu, name="dense1/w")
+                    dense2 = tf.layers.dense(dense1, 1, activation=tf.nn.leaky_relu, name="dense2/w")
+                    return dense2
             if self.net_type == 'STG_5_V1.3-2':
                 """
                 STG_action V1.3 20180220 V1.2 + concat less.
@@ -238,9 +250,6 @@ class STGConvnet(object):
                     grad_action = self.sess.run(gradient_a, feed_dict={self.syn: samples, self.syn_action: sample_a})
                     sample_a = sample_a - 0.5 * self.action_step_size * self.action_step_size * \
                         (sample_a - grad_action) + self.action_step_size * noise
-            mp.clf()
-            mp.hist(sample_a)
-            mp.pause(0.001)
             if self.pbar is not None:
                 self.pbar.update(batch_id * self.sample_steps + i)
         return samples, sample_a
@@ -352,11 +361,13 @@ class STGConvnet(object):
                 if not os.path.exists(self.model_dir):
                     os.makedirs(self.model_dir)
                 saver.save(self.sess, "%s/%s" % (self.model_dir, 'model.ckpt'), global_step=epoch)
+                mp.hist(sample_action)
+                mp.savefig(self.result_dir + "/action_%03d.png" % epoch)
                 saveSampleVideo(sample_video + img_mean, self.result_dir, global_step=epoch)
 
         print('Finished!!!!!!')
         saver.save(self.sess, "%s/%s" % (self.model_dir, 'model.ckpt'), global_step=self.num_epochs)
-        final_save(sample_video + img_mean, self.category)
+        final_save(sample_video + img_mean, sample_action, self.category)
 
 
     def test(self, model_path, test_img, test_label):

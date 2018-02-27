@@ -16,7 +16,7 @@ def main():
     parser.add_argument('-num_frames', type=int, default=5, help='number of frames used in training data')
     parser.add_argument('-lr', type=float, default=0.001, help='learning rate')
     parser.add_argument('-beta1', type=float, default=0.5, help='momentum1 in Adam')
-    parser.add_argument('-net_type', type=str, default='STG_5_V1.3', help='Net type')
+    parser.add_argument('-net_type', type=str, default='STG_5_V1.3-2', help='Net type')
     parser.add_argument('-dense_layer', type=float, default=1, help='Net type')
     parser.add_argument('-action_cold_start', type=int, default=1, help='Whether use cold start on action')
     parser.add_argument('-state_cold_start', type=int, default=0, help='Whether use cold start on state')
@@ -24,7 +24,9 @@ def main():
 
     # langevin hyper-parameters
     parser.add_argument('-delta', '--step_size', type=float, default=0.3)
+    parser.add_argument('-action_delta', '--action_step_size', type=float, default=0.001)
     parser.add_argument('-sample_steps', type=int, default=30)
+    parser.add_argument('-action_sample_steps', type=int, default=1)
 
     # misc
     parser.add_argument('-output_dir', type=str, default='./output', help='output directory')
@@ -32,7 +34,7 @@ def main():
     parser.add_argument('-data_path', type=str, default='./training_demo', help='root directory of data')
     parser.add_argument('-log_step', type=int, default=30, help='number of steps to output synthesized image')
     
-    parser.add_argument('-model_path', type=str, default='V1_warmstart', help='root directory of data')
+    parser.add_argument('-model_path', type=str, default='V1.4-3_warmstart_delta0.001', help='root directory of data')
 
     opt = parser.parse_args()
     opt.model_path = 'output/' + opt.model_path + '/model/model.ckpt-480'
@@ -49,6 +51,7 @@ def main():
         score, energy, predicted_action = model.test(opt.model_path, train_img, train_label)
 
     mp.plot(predicted_action[:,0])
+    mp.show()
 
     # Later, launch the model, use the saver to restore variables from disk, and
     # do some work with the model.
