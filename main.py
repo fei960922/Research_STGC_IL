@@ -13,7 +13,7 @@ def main():
     parser.add_argument('-num_frames', type=int, default=5, help='number of frames used in training data')
     parser.add_argument('-lr', type=float, default=0.001, help='learning rate')
     parser.add_argument('-beta1', type=float, default=0.5, help='momentum1 in Adam')
-    parser.add_argument('-net_type', type=str, default='STG_5_V1.3-2', help='Net type')
+    parser.add_argument('-net_type', type=str, default='STG_5_V2.0', help='Net type')
     parser.add_argument('-dense_layer', type=float, default=1, help='Net type')
     parser.add_argument('-action_cold_start', type=int, default=0, help='Whether use cold start on action')
     parser.add_argument('-state_cold_start', type=int, default=0, help='Whether use cold start on state')
@@ -52,9 +52,12 @@ def main():
 
     train_label, train_img = SplitFrame(train_label, train_img, resize_size, opt.num_frames, num_gif)
 
-    config = tf.ConfigProto(gpu_options=tf.GPUOptions(per_process_gpu_memory_fraction=0.4))
+    save_config(opt)
 
-    with tf.Session(config=config) as sess:
+    #config = tf.ConfigProto(gpu_options=tf.GPUOptions(per_process_gpu_memory_fraction=0.4))
+
+    with tf.Session() as sess:
+
         model = STGConvnet(sess, opt)
         model.train(train_img, train_label)
 

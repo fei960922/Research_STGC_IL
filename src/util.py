@@ -4,6 +4,8 @@ from __future__ import division
 import os
 import numpy as np
 import math
+import csv
+from time import localtime, strftime
 from PIL import Image
 import scipy.misc
 import subprocess
@@ -65,6 +67,29 @@ def evaluate_direct(predicted_label, truth_label):
 
     score = ((predicted_label - truth_label)**2).sum()
     return score
+
+def save_config(config):
+
+    # Save to all
+    with open('experiment_list.csv', "a") as output:
+        writer = csv.writer(output)
+        dd = strftime("%Y-%m-%d %H:%M:%S", localtime())
+        row = [dd, config.category, config.net_type, config.batch_size, config.lr, config.step_size,
+               config.action_step_size, config.action_cold_start, config.state_cold_start]
+        writer.writerow(row)
+
+    # Save full config
+
+    log_path = os.path.join(config.output_dir, config.category)
+    if not os.path.exists(log_path):
+        os.makedirs(log_path)
+
+    dict_config = vars(config)
+    with open(log_path + '/config.cfg', "w") as output:
+        writer = csv.writer(output)
+        for val in dict_config:
+            writer.writerow([val + " : " + str(dict_config[val])])
+
 
 def final_save(samples, samples_a, category):
 

@@ -56,18 +56,20 @@ class STGConvnet(object):
                     dense2 = tf.layers.dense(dense1, 128, activation=tf.nn.tanh, name="dense2/w")
                     dense = tf.layers.dense(dense2, 1, activation=tf.nn.tanh, name="dense/w")
                     return dense
-            if self.net_type == 'STG_5_V1.5':
+            if self.net_type == 'STG_5_V2.0':
                 """
-                STG_action V1.5 20180220 V1.2 + concat less + more fc before concat
+                STG_action V2.0 20180227 V1.3-2 + more fc before concat
                 """
                 conv1 = conv3d_leaky_relu(inputs, 120, (3, 5, 5), strides=(1, 2, 3), padding="VALID", name="conv1")
                 conv2 = conv3d_leaky_relu(conv1, 30, (3, 5, 5), strides=(1, 2, 2), padding=(0, 0, 0), name="conv2")
-                conv3 = conv3d_leaky_relu(conv2, 6, (1, 11, 14), strides=(1, 2, 2), padding=(0, 0, 0), name="conv3")
-                if input_action is not None:
-                    conv3 = tf.concat([input_action, tf.layers.flatten(conv3)], 1)
-                    dense1 = tf.layers.dense(conv3, 50, activation=tf.nn.leaky_relu, name="dense1/w")
-                    dense2 = tf.layers.dense(dense1, 1, activation=tf.nn.leaky_relu, name="dense2/w")
-                    return dense2
+                conv3 = conv3d_leaky_relu(conv2, 25, (1, 11, 14), strides=(1, 2, 2), padding=(0, 0, 0), name="conv3")
+
+                fc1 = tf.layers.dense(input_action, 50, activation=tf.nn.leaky_relu, name="fc1/w")
+                fc2 = tf.layers.dense(fc1, 25, activation=tf.nn.leaky_relu, name="fc2/w")
+                concat_layer = tf.concat([fc2, tf.layers.flatten(conv3)], 1)
+                fc3 = tf.layers.dense(concat_layer, 50, activation=tf.nn.leaky_relu, name="fc3/w")
+                fc4 = tf.layers.dense(fc3, 1, activation=tf.nn.leaky_relu, name="fc4/w")
+                return fc4
             if self.net_type == 'STG_5_V1.3-2':
                 """
                 STG_action V1.3 20180220 V1.2 + concat less.
@@ -361,9 +363,9 @@ class STGConvnet(object):
                 if not os.path.exists(self.model_dir):
                     os.makedirs(self.model_dir)
                 saver.save(self.sess, "%s/%s" % (self.model_dir, 'model.ckpt'), global_step=epoch)
+                saveSampleVideo(sample_video + img_mean, self.result_dir, global_step=epoch)
                 mp.hist(sample_action)
                 mp.savefig(self.result_dir + "/action_%03d.png" % epoch)
-                saveSampleVideo(sample_video + img_mean, self.result_dir, global_step=epoch)
 
         print('Finished!!!!!!')
         saver.save(self.sess, "%s/%s" % (self.model_dir, 'model.ckpt'), global_step=self.num_epochs)
