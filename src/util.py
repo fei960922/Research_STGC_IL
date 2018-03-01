@@ -191,3 +191,14 @@ def saveSampleSequence(samples, sample_dir, iter, col_num=10):
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
         scipy.misc.imsave("%s/%04d.png" % (save_dir, iter), img2cell(samples[iv], col_num=col_num))
+
+def xcrange(d1, d2, d3 = -1, d4 = -1):
+    if d3 == -1:
+        x,y = np.meshgrid(range(d1), range(d2))
+        return zip(x.flatten(), y.flatten())
+    if d4 == -1:
+        x,y,z = np.meshgrid(range(d1), range(d2), range(d3))
+        return zip(x.flatten(), y.flatten(), z.flatten())
+    else:
+        x, y, z, c = np.meshgrid(range(d1), range(d2), range(d3), range(d4))
+        return zip(x.flatten(), y.flatten(), z.flatten(), c.flatten())

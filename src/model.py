@@ -306,15 +306,15 @@ class STGConvnet(object):
 
         sample_size = self.num_chain * num_batches
         sample_video = np.random.normal(size = [sample_size] + self.image_size)
+        sample_action = np.random.normal(scale=0.2, loc=0.3, size = [sample_size, self.action_size])
         if self.state_cold_start:
             for i in range(num_batches):
                 single_grid = train_img[i * self.batch_size:min(len(train_img), (i+1) * self.batch_size)]
                 single_grid = single_grid.mean(axis=0).mean(axis=(1,2), keepdims=1)\
                     .repeat(train_img.shape[2], axis=1).repeat(train_img.shape[3], axis=2)
                 sample_video[i * self.num_chain:(i+1) * self.num_chain] = np.tile(single_grid, (self.num_chain,1,1,1,1))
-                final_save(sample_video + img_mean, self.category)
+                final_save(sample_video + img_mean, sample_action, self.category)
 
-        sample_action = np.random.normal(scale=0.2, loc=0.3, size = [sample_size, self.action_size])
 
         tf.summary.scalar('train_loss', train_loss_mean)
         tf.summary.scalar('reconstruction_error_image', recon_err_mean_1)
@@ -363,14 +363,27 @@ class STGConvnet(object):
                 if not os.path.exists(self.model_dir):
                     os.makedirs(self.model_dir)
                 saver.save(self.sess, "%s/%s" % (self.model_dir, 'model.ckpt'), global_step=epoch)
-                saveSampleVideo(sample_video + img_mean, self.result_dir, global_step=epoch)
-                mp.hist(sample_action)
-                mp.savefig(self.result_dir + "/action_%03d.png" % epoch)
+                saveSampleVideo(syn + img_mean, self.result_dir, global_step=epoch)
+                mp.hist(syn_action)
+                mp.savefig(os.path.join(self.result_dir, 'action_%03d.png' % epoch))
 
         print('Finished!!!!!!')
         saver.save(self.sess, "%s/%s" % (self.model_dir, 'model.ckpt'), global_step=self.num_epochs)
         final_save(sample_video + img_mean, sample_action, self.category)
+        np.save(os.path.join(self.output_dir, 'sample_video'), sample_video)
+        np.save(os.path.join(self.output_dir, 'sample_action'), sample_action)
+        np.save(os.path.join(self.output_dir, 'gradients'), gradients)
 
+    def evaluate(self, syn_res, images, method = 1):
+
+        energy = np.empty((16, 16, 16))
+        for i, j, k in xcrange(16, 16, 16):
+            energy[i, j, k] = self.sess.run(syn_res, feed_dict={self.syn: images, self.syn_action: [i*16, j*16, k*16]})
+        energy_0 = np.sum(energy, axis=(1, 2))
+        energy_1 = np.sum(energy, axis=(0, 2))
+        energy_2 = np.sum(energy, axis=(0, 1))
+        mp.plot(range(0, 255, 16), [energy_0, energy_1, energy_2])
+        mp.savefig(os.path.join(self.output_dir, 'action_%03d.png'))
 
     def test(self, model_path, test_img, test_label):
 
