@@ -3,9 +3,6 @@
   <component name="ChangeListManager">
     <list default="true" id="53b16e09-aa55-410c-9272-db0b1f3f5173" name="Default" comment="">
       <change type="MODIFICATION" beforePath="$PROJECT_DIR$/.idea/workspace.xml" afterPath="$PROJECT_DIR$/.idea/workspace.xml" />
-      <change type="MODIFICATION" beforePath="$PROJECT_DIR$/src/model.py" afterPath="$PROJECT_DIR$/src/model.py" />
-      <change type="MODIFICATION" beforePath="$PROJECT_DIR$/src/util.py" afterPath="$PROJECT_DIR$/src/util.py" />
-      <change type="MODIFICATION" beforePath="$PROJECT_DIR$/test.py" afterPath="$PROJECT_DIR$/test.py" />
     </list>
     <option name="EXCLUDED_CONVERTED_TO_IGNORED" value="true" />
     <option name="TRACKING_ENABLED" value="true" />
@@ -384,7 +381,14 @@
       <option name="project" value="LOCAL" />
       <updated>1519850587452</updated>
     </task>
-    <option name="localTasksCounter" value="5" />
+    <task id="LOCAL-00005" summary="new method discretized">
+      <created>1519946757834</created>
+      <option name="number" value="00005" />
+      <option name="presentableId" value="LOCAL-00005" />
+      <option name="project" value="LOCAL" />
+      <updated>1519946757834</updated>
+    </task>
+    <option name="localTasksCounter" value="6" />
     <servers />
   </component>
   <component name="ToolWindowManager">
@@ -428,7 +432,8 @@
     <MESSAGE value="update langevin_dynamics" />
     <MESSAGE value="update V1.5" />
     <MESSAGE value="update V2.0 more fc before concat, save config" />
-    <option name="LAST_COMMIT_MESSAGE" value="update V2.0 more fc before concat, save config" />
+    <MESSAGE value="new method discretized" />
+    <option name="LAST_COMMIT_MESSAGE" value="new method discretized" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>
