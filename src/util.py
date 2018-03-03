@@ -50,7 +50,7 @@ def SplitFrame(data_label, data_image, resize_size = None, num_frame = 5, split_
     for i in range(num_demo):
         img_temp[i, ...] = scipy.misc.imresize(data_image[i, ...], size=resize_size)
 
-    if split_at == 0:
+    if split_at == 0 or num_demo < split_at:
         num_gif = num_demo - num_frame + 1
         nf = np.arange(num_gif)
     else:

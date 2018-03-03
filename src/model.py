@@ -315,7 +315,6 @@ class STGConvnet(object):
                 sample_video[i * self.num_chain:(i+1) * self.num_chain] = np.tile(single_grid, (self.num_chain,1,1,1,1))
                 final_save(sample_video + img_mean, sample_action, self.category)
 
-
         tf.summary.scalar('train_loss', train_loss_mean)
         tf.summary.scalar('reconstruction_error_image', recon_err_mean_1)
         tf.summary.scalar('reconstruction_error_action', recon_err_mean_2)
@@ -374,29 +373,65 @@ class STGConvnet(object):
         np.save(os.path.join(self.output_dir, 'sample_action'), sample_action)
         np.save(os.path.join(self.output_dir, 'gradients'), gradients)
 
-    def evaluate(self, syn_res, images, method = 1):
+    def evaluate(self, obs_res, images, method = 1):
 
         energy = np.empty((16, 16, 16))
         for i, j, k in xcrange(16, 16, 16):
-            energy[i, j, k] = self.sess.run(syn_res, feed_dict={self.syn: images, self.syn_action: [i*16, j*16, k*16]})
+            action_d = np.tile([i,j,k], (images.shape[0], 1)).astype(float)/8
+            a = self.sess.run(obs_res, feed_dict={self.obs: images, self.obs_action: action_d})
+            energy[i,j,k] = a[0,0]
         energy_0 = np.sum(energy, axis=(1, 2))
         energy_1 = np.sum(energy, axis=(0, 2))
         energy_2 = np.sum(energy, axis=(0, 1))
-        mp.plot(range(0, 255, 16), [energy_0, energy_1, energy_2])
-        mp.savefig(os.path.join(self.output_dir, 'action_%03d.png'))
+        mp.plot(range(0, 255, 16), energy_0)
+        mp.plot(range(0, 255, 16), energy_1)
+        mp.plot(range(0, 255, 16), energy_2)
+        mp.savefig('evaluate.png')
 
     def test(self, model_path, test_img, test_label):
 
+        tf.set_random_seed(1234)
         n_test = test_img.shape[0]
         assert (n_test == test_label.shape[0]), "Img and Label size mismatch."
-
         self.image_size = list(test_img.shape[1:])
-        print(self.image_size)
-        # Create some variables.
+
         self.obs = tf.placeholder(shape=[None] + self.image_size, dtype=tf.float32)
-        self.syn = tf.placeholder(shape=[n_test] + self.image_size, dtype=tf.float32)
+        self.syn = tf.placeholder(shape=[None] + self.image_size, dtype=tf.float32)
         self.obs_action = tf.placeholder(shape=[None, self.action_size], dtype=tf.float32)
-        self.syn_action = tf.placeholder(shape=[n_test, self.action_size], dtype=tf.float32)
+        self.syn_action = tf.placeholder(shape=[None, self.action_size], dtype=tf.float32)
+        obs_res = self.descriptor(self.obs, False, self.obs_action, self.dense_layer)
+        syn_res = self.descriptor(self.syn, True, self.syn_action, self.dense_layer)
+        dLdI = tf.gradients(syn_res, self.syn)[0]
+        dLdI_action = tf.gradients(syn_res, self.syn_action)[0]
+        self.sess.run(tf.global_variables_initializer())
+
+        sample_action = np.random.normal(size=[n_test, self.action_size])
+        saver = tf.train.Saver()
+        self.pbar = None
+
+        saver.restore(self.sess, model_path)
+        print("%s loaded, start testing..." % model_path)
+        self.evaluate(obs_res, test_img[0:1, ...])
+        mp.clf()
+        test_img, predicted_action = self.langevin_dynamics(test_img, sample_action, dLdI, dLdI_action, -1, False, True)
+        energy = self.sess.run(obs_res, feed_dict={self.obs: test_img, self.obs_action: predicted_action})
+        score = evaluate_direct(predicted_action, test_label)
+        print(score)
+        return score, energy, predicted_action
+
+    def test2(self, sess, train_img, train_label, model_path):
+
+        # if np.max(train_img) > 1:
+        #     train_img = train_img / 255
+        img_mean = train_img.mean()
+        train_img = train_img - img_mean
+        print(train_img.shape)
+        self.image_size = list(train_img.shape[1:])
+
+        self.obs = tf.placeholder(shape=[None] + self.image_size, dtype=tf.float32)
+        self.syn = tf.placeholder(shape=[self.num_chain] + self.image_size, dtype=tf.float32)
+        self.obs_action = tf.placeholder(shape=[None, self.action_size], dtype=tf.float32)
+        self.syn_action = tf.placeholder(shape=[self.num_chain, self.action_size], dtype=tf.float32)
 
         obs_res = self.descriptor(self.obs, False, self.obs_action, self.dense_layer)
         syn_res = self.descriptor(self.syn, True, self.syn_action, self.dense_layer)
@@ -404,22 +439,65 @@ class STGConvnet(object):
         print('Network Established')
         dLdI = tf.gradients(syn_res, self.syn)[0]
         dLdI_action = tf.gradients(syn_res, self.syn_action)[0]
-        sample_action = np.random.normal(size=[n_test, self.action_size])
+
+
+        num_batches = int(math.ceil(len(train_img) / self.batch_size))
+
+
+        print('Initializing...')
+
         self.sess.run(tf.global_variables_initializer())
-        self.sess.run(tf.local_variables_initializer())
-        # Add ops to save and restore all the variables.
-        saver = tf.train.import_meta_graph(model_path + '.meta')
-        self.pbar = None
 
-        with tf.Session() as sess:
-            saver.restore(sess, model_path)
-            print("Model loaded, start testing...")
+        sample_size = self.num_chain * num_batches
+        sample_video = np.random.normal(size = [sample_size] + self.image_size)
+        sample_action = np.random.normal(scale=0.2, loc=0.3, size = [sample_size, self.action_size])
+        if self.state_cold_start:
+            for i in range(num_batches):
+                single_grid = train_img[i * self.batch_size:min(len(train_img), (i+1) * self.batch_size)]
+                single_grid = single_grid.mean(axis=0).mean(axis=(1,2), keepdims=1)\
+                    .repeat(train_img.shape[2], axis=1).repeat(train_img.shape[3], axis=2)
+                sample_video[i * self.num_chain:(i+1) * self.num_chain] = np.tile(single_grid, (self.num_chain,1,1,1,1))
+                final_save(sample_video + img_mean, sample_action, self.category)
 
-            test_img, predicted_action = self.langevin_dynamics(test_img, sample_action, dLdI, dLdI_action, -1, False, True)
-            energy = self.sess.run(syn_res, feed_dict={self.syn: test_img, self.syn_action: predicted_action})
-            energy = np.sum(energy, axis=1)
-            score = evaluate_direct(predicted_action, test_label)
-            print(score)
-            return score, energy, predicted_action
+
+
+        saver = tf.train.Saver(max_to_keep=50)
+
+        saver.restore(sess, model_path)
+        print("%s loaded, start testing..." % model_path)
+
+        gradients = []
+
+        widgets = ["Testing #|", Percentage(), Bar(), ETA()]
+        self.pbar = ProgressBar(maxval=num_batches * self.sample_steps, widgets=widgets)
+        self.pbar.start()
+
+        for i in range(num_batches):
+
+            obs_data = train_img[i * self.batch_size:min(len(train_img), (i+1) * self.batch_size)]
+            obs_action = train_label[i * self.batch_size:min(len(train_label), (i+1) * self.batch_size)]
+            syn = sample_video[i * self.num_chain:(i+1) * self.num_chain]
+            syn_action = sample_action[i * self.num_chain:(i+1) * self.num_chain]
+            syn, syn_action = self.langevin_dynamics(syn, syn_action, dLdI, dLdI_action, i)
+            if self.state_cold_start==0:
+                sample_video[i * self.num_chain:(i + 1) * self.num_chain] = syn
+            if self.action_cold_start==0:
+                sample_action[i * self.num_chain:(i + 1) * self.num_chain] = syn_action
+
+        self.pbar.finish()
+
+        if not os.path.exists(self.model_dir):
+            os.makedirs(self.model_dir)
+        saveSampleVideo(syn + img_mean, self.result_dir, global_step=0)
+        mp.hist(syn_action)
+        mp.savefig(os.path.join(self.result_dir, 'action_%03d.png' % 0))
+
+        print('Finished!!!!!!')
+        # saver.save(self.sess, "%s/%s" % (self.model_dir, 'model.ckpt'), global_step=self.num_epochs)
+        final_save(sample_video + img_mean, sample_action, self.category)
+        np.save(os.path.join(self.output_dir, 'sample_video'), sample_video)
+        np.save(os.path.join(self.output_dir, 'sample_action'), sample_action)
+        np.save(os.path.join(self.output_dir, 'gradients'), gradients)
+
 
 

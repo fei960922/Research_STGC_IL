@@ -53,13 +53,14 @@ def main():
     train_label, train_img = SplitFrame(train_label, train_img, resize_size, opt.num_frames, num_gif)
 
     save_config(opt)
+    opt.model_path = 'output/V2.0_coldstart/model/model.ckpt-480'
 
     #config = tf.ConfigProto(gpu_options=tf.GPUOptions(per_process_gpu_memory_fraction=0.4))
 
     with tf.Session() as sess:
 
         model = STGConvnet(sess, opt)
-        model.train(train_img, train_label)
+        model.train(train_img, train_label, opt.model_path)
 
 if __name__ == '__main__':
     main()

@@ -16,11 +16,10 @@ def main():
     parser.add_argument('-num_frames', type=int, default=5, help='number of frames used in training data')
     parser.add_argument('-lr', type=float, default=0.001, help='learning rate')
     parser.add_argument('-beta1', type=float, default=0.5, help='momentum1 in Adam')
-    parser.add_argument('-net_type', type=str, default='STG_5_V1.3-2', help='Net type')
+    parser.add_argument('-net_type', type=str, default='STG_5_V2.0', help='Net type')
     parser.add_argument('-dense_layer', type=float, default=1, help='Net type')
     parser.add_argument('-action_cold_start', type=int, default=1, help='Whether use cold start on action')
     parser.add_argument('-state_cold_start', type=int, default=1, help='Whether use cold start on state')
-
 
     # langevin hyper-parameters
     parser.add_argument('-delta', '--step_size', type=float, default=0.3)
@@ -30,7 +29,7 @@ def main():
 
     # misc
     parser.add_argument('-output_dir', type=str, default='./output', help='output directory')
-    parser.add_argument('-category', type=str, default='V2.0-all_cold_start')
+    parser.add_argument('-category', type=str, default='V2.0_coldstart')
     parser.add_argument('-data_path', type=str, default='./training_demo', help='root directory of data')
     parser.add_argument('-log_step', type=int, default=30, help='number of steps to output synthesized image')
     
@@ -48,22 +47,21 @@ def main():
     train_label[:, 0] = (train_label[:, 0] + 0.3) / 0.6 * 255
     train_label[:, 1] = train_label[:, 1] / 0.6 * 255
     train_label[:, 2] = train_label[:, 2] / 0.5 * 255
-    mp.show()
+    mp.plot(train_label[:,0], 'r')
+    mp.plot(train_label[:, 1], 'b')
+    mp.plot(train_label[:, 2], 'g')
+    mp.savefig('true_action.png')
     with tf.Session() as sess:
         model = STGConvnet(sess, opt)
         score, energy, predicted_action = model.test(opt.model_path, train_img, train_label)
 
     data = {'score': score, 'energy' : energy, 'predicted_action' : predicted_action, 'train_label' : train_label}
     np.save('test', data)
-    mp.plot(predicted_action[:,0])
-    mp.plot(train_label[:,0])
-    mp.show()
-    mp.plot(predicted_action[:, 1])
-    mp.plot(train_label[:, 1])
-    mp.show()
-    mp.plot(predicted_action[:, 2])
-    mp.plot(train_label[:, 2])
-    mp.show()
+    mp.clf()
+    mp.plot(predicted_action[:,0], 'r')
+    mp.plot(predicted_action[:, 1], 'b')
+    mp.plot(predicted_action[:, 2], 'g')
+    mp.savefig('predicted_action.png')
 
     # Later, launch the model, use the saver to restore variables from disk, and
     # do some work with the model.
