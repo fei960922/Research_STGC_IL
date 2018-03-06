@@ -284,8 +284,6 @@ class STGConvnet(object):
         print('Network Established')
         dLdI = tf.gradients(syn_res, self.syn)[0]
         dLdI_action = tf.gradients(syn_res, self.syn_action)[0]
-
-
         num_batches = int(math.ceil(len(train_img) / self.batch_size))
 
         des_vars = [var for var in tf.trainable_variables() if var.name.startswith('des')]
@@ -344,9 +342,9 @@ class STGConvnet(object):
                                                 self.syn: syn, self.syn_action: syn_action})[0]
                 self.sess.run(recon_err_update_1, feed_dict={self.obs: obs_data, self.syn: syn})
                 self.sess.run(recon_err_update_2, feed_dict={self.obs_action: obs_action, self.syn_action: syn_action})
-                if self.state_cold_start==0:
+                if self.state_cold_start == 0:
                     sample_video[i * self.num_chain:(i + 1) * self.num_chain] = syn
-                if self.action_cold_start==0:
+                if self.action_cold_start == 0:
                     sample_action[i * self.num_chain:(i + 1) * self.num_chain] = syn_action
 
                 gradients.append(np.mean(grad))
@@ -388,7 +386,7 @@ class STGConvnet(object):
         mp.plot(range(0, 255, 16), energy_2)
         mp.savefig('evaluate.png')
 
-    def test(self, model_path, test_img, test_label):
+    def test(self, model_path, test_img, test_label, output_image=False):
 
         tf.set_random_seed(1234)
         n_test = test_img.shape[0]
@@ -417,6 +415,18 @@ class STGConvnet(object):
         energy = self.sess.run(obs_res, feed_dict={self.obs: test_img, self.obs_action: predicted_action})
         score = evaluate_direct(predicted_action, test_label)
         print(score)
+        if output_image:
+            data = {'score': score, 'energy': energy, 'predicted_action': predicted_action, 'train_label': test_label}
+            np.save('test', data)
+            mp.plot(test_label[:,0], 'r')
+            mp.plot(test_label[:, 1], 'b')
+            mp.plot(test_label[:, 2], 'g')
+            mp.savefig('true_action.png')
+            mp.clf()
+            mp.plot(predicted_action[:, 0], 'r')
+            mp.plot(predicted_action[:, 1], 'b')
+            mp.plot(predicted_action[:, 2], 'g')
+            mp.savefig('predicted_action.png')
         return score, energy, predicted_action
 
     def test2(self, sess, train_img, train_label, model_path):

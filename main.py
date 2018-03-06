@@ -15,8 +15,8 @@ def main():
     parser.add_argument('-beta1', type=float, default=0.5, help='momentum1 in Adam')
     parser.add_argument('-net_type', type=str, default='STG_5_V2.0', help='Net type')
     parser.add_argument('-dense_layer', type=float, default=1, help='Net type')
-    parser.add_argument('-action_cold_start', type=int, default=0, help='Whether use cold start on action')
-    parser.add_argument('-state_cold_start', type=int, default=0, help='Whether use cold start on state')
+    parser.add_argument('-action_cold_start', type=int, default=1, help='Whether use cold start on action')
+    parser.add_argument('-state_cold_start', type=int, default=1, help='Whether use cold start on state')
 
     # langevin hyper-parameters
     parser.add_argument('-delta', '--step_size', type=float, default=0.3)
