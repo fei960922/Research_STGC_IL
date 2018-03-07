@@ -141,7 +141,7 @@ def img2cell(images, col_num=10, margin=2):
         ir = int(math.floor(idx / col_num))
         ic = idx % col_num
         temp = np.squeeze(images[idx])
-        temp = np.maximum(0.0, np.minimum(255.0, np.round(temp)))
+        temp = np.maximum(0.0, np.minimum(1.0, temp))
         gLow = temp.min()
         gHigh = temp.max()
         temp = (temp - gLow) / (gHigh - gLow)

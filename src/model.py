@@ -24,7 +24,7 @@ class STGConvnet(object):
         self.step_size = config.step_size
         self.sample_steps = config.sample_steps
 
-        self.action_step_size = config.action_step_size
+        self.action_step_size = config.step_size
         self.action_sample_steps = config.action_sample_steps * self.sample_steps
         self.action_size = 3
         self.action_cold_start = config.action_cold_start
@@ -258,8 +258,8 @@ class STGConvnet(object):
 
     def train(self, train_img, train_label):
 
-        # if np.max(train_img) > 1:
-        #     train_img = train_img / 255
+        if np.max(train_img) > 1:
+            train_img = train_img / 255
         img_mean = train_img.mean()
         train_img = train_img - img_mean
         print(train_img.shape)
@@ -353,7 +353,7 @@ class STGConvnet(object):
             self.sess.run(apply_grads)
             [loss, re1, re2, summary] = self.sess.run([train_loss_mean, recon_err_mean_1, recon_err_mean_2, summary_op])
             print('Epoch #%d, loss: %.4f, SSD w: %4.4f, Avg MSE (img, action): (%4.4f, %4.4f)'
-                  % (epoch, loss, float(np.mean(gradients)), re1, re2))
+                  % (epoch, loss, float(np.mean(gradients)), re1*256*256, re2*256*256))
             writer.add_summary(summary, epoch)
 
             if epoch % self.log_step == 0:
@@ -386,7 +386,7 @@ class STGConvnet(object):
         mp.plot(range(0, 255, 16), energy_2)
         mp.savefig('evaluate.png')
 
-    def test(self, model_path, test_img, test_label, output_image=False):
+    def test(self, model_path, test_img, test_label, output_image=True):
 
         tf.set_random_seed(1234)
         n_test = test_img.shape[0]

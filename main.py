@@ -19,8 +19,8 @@ def main():
     parser.add_argument('-state_cold_start', type=int, default=1, help='Whether use cold start on state')
 
     # langevin hyper-parameters
-    parser.add_argument('-delta', '--step_size', type=float, default=0.3)
-    parser.add_argument('-action_delta', '--action_step_size', type=float, default=0.3)
+    parser.add_argument('-delta', '--step_size', type=float, default=0.0015)
+    #parser.add_argument('-action_delta', '--action_step_size', type=float, default=0.3)
     parser.add_argument('-sample_steps', type=int, default=20)
     parser.add_argument('-action_sample_steps', type=int, default=1)
 
@@ -32,14 +32,15 @@ def main():
     parser.add_argument('-log_step', type=int, default=20, help='number of steps to output synthesized image')
 
     opt = parser.parse_args()
+    opt.action_step_size = opt.step_size
 
     # Prepare training data
     train_img, train_label = loadActionDemo(opt.data_path, 1000)
     # Split 8000 Frame into multiple small snap
     num_gif = 100
     resize_size = [55,100]
-    play_scale_trick_xxz = True
-    play_scale_trick_xyf = False
+    play_scale_trick_xxz = False
+    play_scale_trick_xyf = True
 
     if play_scale_trick_xxz:
         train_label[:, 0] = (train_label[:, 0] + 0.3) / 0.6 * 255
@@ -53,14 +54,13 @@ def main():
     train_label, train_img = SplitFrame(train_label, train_img, resize_size, opt.num_frames, num_gif)
 
     save_config(opt)
-    opt.model_path = 'output/V2.0_coldstart/model/model.ckpt-480'
 
     #config = tf.ConfigProto(gpu_options=tf.GPUOptions(per_process_gpu_memory_fraction=0.4))
 
     with tf.Session() as sess:
 
         model = STGConvnet(sess, opt)
-        model.train(train_img, train_label, opt.model_path)
+        model.train(train_img, train_label)
 
 if __name__ == '__main__':
     main()
