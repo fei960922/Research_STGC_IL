@@ -9,7 +9,7 @@ from .util import *
 from progressbar import ETA, Bar, Percentage, ProgressBar
 
 
-class STGConvnet_discretize(object):
+class STGConvnet(object):
     def __init__(self, sess, config):
         self.sess = sess
         self.net_type = config.net_type
@@ -24,7 +24,7 @@ class STGConvnet_discretize(object):
         self.step_size = config.step_size
         self.sample_steps = config.sample_steps
 
-        self.action_step_size = config.action_step_size
+        self.action_step_size = config.step_size
         self.action_sample_steps = config.action_sample_steps * self.sample_steps
         self.action_size = 3
         self.action_cold_start = config.action_cold_start
@@ -43,7 +43,40 @@ class STGConvnet_discretize(object):
             tf.gfile.DeleteRecursively(self.log_dir)
         tf.gfile.MakeDirs(self.log_dir)
 
-    def descriptor(self, inputs, reuse=False, input_action=None):
+        self.image_size = list(train_img.shape[1:])
+        self.obs = tf.placeholder(shape=[None] + self.image_size, dtype=tf.float32)
+        self.syn = tf.placeholder(shape=[self.num_chain] + self.image_size, dtype=tf.float32)
+        self.obs_action = tf.placeholder(shape=[None, self.action_size], dtype=tf.float32)
+        self.syn_action = tf.placeholder(shape=[self.num_chain, self.action_size], dtype=tf.float32)
+
+        # New Langevin by TF.
+        def cond(i, syn, syn_a):
+            return tf.less(i, self.sample_steps)
+
+        def body_update_action(i, syn, syn_a):
+            syn_res = self.descriptor(syn, True, syn_a)
+            noise = tf.random_normal(shape=tf.shape(syn), name='noise')
+            grad_a = tf.gradients(syn_res, syn_a, name='grad_a_des')[0]
+            syn_a = syn_a - 0.5 * self.step_size * self.step_size * (syn_a - grad_a) + self.step_size * noise
+            return tf.add(i, 1), [syn, syn_a]
+
+        def body_update_both(i, syn, syn_a):
+            noise = tf.random_normal(shape=tf.shape(syn), name='noise')
+            syn_res = self.descriptor(syn, True, syn_a)
+            grad = tf.gradients(syn_res, syn, name='grad_des')[0]
+            syn = syn - 0.5 * self.step_size * self.step_size * (syn - grad) + self.step_size * noise
+            noise = tf.random_normal(shape=tf.shape(syn_a), name='noise')
+            grad_a = tf.gradients(syn_res, syn_a, name='grad_a_des')[0]
+            syn_a = syn_a - 0.5 * self.step_size * self.step_size * (syn_a - grad_a) + self.step_size * noise
+            return tf.add(i, 1), [syn, syn_a]
+
+        with tf.name_scope("langevin_dynamics"):
+            i = tf.constant(0)
+            j = tf.constant(0)
+            i, self.langevin_both = tf.while_loop(cond, body_update_both, [i, self.syn, self.syn_action])
+            j, self.langevin_action = tf.while_loop(cond, body_update_both, [j, self.syn, self.syn_action])
+
+    def descriptor(self, inputs, reuse=False, input_action=None, dense_layer=True):
         with tf.variable_scope('des', reuse=reuse):
             if self.net_type == 'STG_5_xzz':
                 # STG_action V0.4 20180217
@@ -77,60 +110,188 @@ class STGConvnet_discretize(object):
                 conv1 = conv3d_leaky_relu(inputs, 120, (3, 5, 5), strides=(1, 2, 3), padding="VALID", name="conv1")
                 conv2 = conv3d_leaky_relu(conv1, 30, (3, 5, 5), strides=(1, 2, 2), padding=(0, 0, 0), name="conv2")
                 conv3 = conv3d_leaky_relu(conv2, 6, (1, 11, 14), strides=(1, 2, 2), padding=(0, 0, 0), name="conv3")
+                if input_action is not None:
+                    conv3 = tf.concat([input_action, tf.layers.flatten(conv3)], 1)
+                    dense1 = tf.layers.dense(conv3, 50, activation=tf.nn.leaky_relu, name="dense1/w")
+                    dense2 = tf.layers.dense(dense1, 1, activation=tf.nn.leaky_relu, name="dense2/w")
+                    return dense2
+            if self.net_type == 'STG_5_V1.3':
+                """
+                STG_action V1.3 20180220 V1.2 + concat less.
+                """
+                conv1 = conv3d_leaky_relu(inputs, 120, (3, 5, 5), strides=(1, 2, 3), padding="VALID", name="conv1")
+                conv2 = conv3d_leaky_relu(conv1, 30, (3, 5, 5), strides=(1, 2, 2), padding=(0, 0, 0), name="conv2")
+                conv3 = conv3d_leaky_relu(conv2, 3, (1, 11, 14), strides=(1, 2, 2), padding=(0, 0, 0), name="conv3")
+                if input_action is not None:
+                    conv3 = tf.concat([input_action, tf.layers.flatten(conv3)], 1)
+                    dense1 = tf.layers.dense(conv3, 50, activation=tf.nn.leaky_relu, name="dense1/w")
+                    dense2 = tf.layers.dense(dense1, 1, activation=tf.nn.leaky_relu, name="dense2/w")
+                    return dense2
+            if self.net_type == 'STG_5_V1.2':
+                """ 
+                STG_action V1.2 20180220 V1.1 + more fc layer
+                """
+                conv1 = conv3d_leaky_relu(inputs, 50, (3, 5, 5), strides=(1, 2, 3), padding="VALID", name="conv1")
+                conv2 = conv3d_leaky_relu(conv1, 50, (3, 5, 5), strides=(1, 2, 2), padding=(0, 0, 0), name="conv2")
+                conv3 = conv3d_leaky_relu(conv2, 27, (1, 11, 14), strides=(1, 2, 2), padding=(0, 0, 0), name="conv3")
+                if input_action is not None:
+                    conv3 = tf.concat([input_action, tf.layers.flatten(conv3)], 1)
+                    dense1 = tf.layers.dense(conv3, 50, activation=tf.nn.leaky_relu, name="dense1/w")
+                    dense2 = tf.layers.dense(dense1, 1, activation=tf.nn.leaky_relu, name="dense2/w")
+                    return dense2
+            if self.net_type == 'STG_5_V1.1':
+                """
+                STG_action V1.1 20180220 V1.0 + leaky relu
+                """
+                conv1 = conv3d_leaky_relu(inputs, 50, (3, 5, 5), strides=(1, 2, 3), padding="VALID", name="conv1")
+                conv2 = conv3d_leaky_relu(conv1, 50, (3, 5, 5), strides=(1, 2, 2), padding=(0, 0, 0), name="conv2")
+                conv3 = conv3d_leaky_relu(conv2, 27, (1, 11, 14), strides=(1, 2, 2), padding=(0, 0, 0), name="conv3")
+                if input_action is not None:
+                    conv3 = tf.concat([input_action, tf.layers.flatten(conv3)], 1)
+                    dense = tf.layers.dense(conv3, 1, activation=None, name="dense/w")
+                    return dense
+            if self.net_type == 'STG_5_V1':
+                """
+                STG_action V1.0 20180220 After V1.0, the image input will be 5 frame, 55*100*3
+                """
+                conv1 = conv3d_relu(inputs, 50, (3, 5, 5), strides=(1, 2, 3), padding="VALID", name="conv1")
+                conv2 = conv3d_relu(conv1, 50, (3, 5, 5), strides=(1, 2, 2), padding=(0, 0, 0), name="conv2")
+                conv3 = conv3d_relu(conv2, 27, (1, 11, 14), strides=(1, 2, 2), padding=(0, 0, 0), name="conv3")
+                if input_action is not None:
+                    conv3 = tf.concat([input_action, tf.layers.flatten(conv3)], 1)
+                    dense = tf.layers.dense(conv3, 1, activation=None, name="dense/w")
+                    return dense
+            if self.net_type == 'STG_3_demo_4':
+                """
+                STG_action V0.4 20180217
+                """
+                conv1 = conv3d_relu(inputs, 60, (3, 7, 7), strides=(1, 3, 3), padding="SAME", name="conv1")
+                conv2 = conv3d_relu(conv1, 60, (3, 5, 5), strides=(1, 2, 3), padding=(0, 0, 0), name="conv2")
+                conv3 = conv3d_relu(conv2, 37, (1, 17, 21), strides=(1, 2, 2), padding=(0, 0, 0), name="conv3")
+                if input_action is not None:
+                    conv3 = tf.concat([input_action, tf.layers.flatten(conv3)], 1)
+                    dense = tf.layers.dense(conv3, 1, activation=None, name="dense/w")
+                    return dense
+            if self.net_type == 'STG_3_demo_2':
+                """
+                STG_action V0.3 20180215
+                """
+                conv1 = conv3d(inputs, 60, (3, 7, 7), strides=(1, 3, 3), padding="SAME", name="conv1")
+                conv1 = tf.nn.relu(conv1)
 
-                conv3 = tf.concat([input_action, tf.layers.flatten(conv3)], 1)
-                dense1 = tf.layers.dense(conv3, 50, activation=tf.nn.leaky_relu, name="dense1/w")
-                dense2 = tf.layers.dense(dense1, 1, activation=tf.nn.leaky_relu, name="dense2/w")
-                return dense2
-            return NotImplementedError
+                conv2 = conv3d(conv1, 60, (3, 25, 25), strides=(1, 2, 3), padding=(0, 0, 0), name="conv2")
+                conv2 = tf.nn.relu(conv2)
 
-    def langevin_dynamics(self, samples, sample_a, gradient, gradient_a, batch_id,
-                          update_state=True, update_action=True):
-        for i in range(self.sample_steps):
-            if update_state:
-                noise = np.random.randn(*samples.shape)
-                grad = self.sess.run(gradient, feed_dict={self.syn: samples, self.syn_action: sample_a})
-                samples = samples - 0.5 * self.step_size * self.step_size * (samples - grad) + self.step_size * noise
-            if update_action:
-                for j in range(self.action_sample_steps):
-                    noise = np.random.randn(*sample_a.shape)
-                    grad_action = self.sess.run(gradient_a, feed_dict={self.syn: samples, self.syn_action: sample_a})
-                    sample_a = sample_a - 0.5 * self.action_step_size * self.action_step_size * \
-                        (sample_a - grad_action) + self.action_step_size * noise
-            if self.pbar is not None:
-                self.pbar.update(batch_id * self.sample_steps + i)
-        return samples, sample_a
+                conv3 = conv3d(conv2, 8, (1, 5, 10), strides=(1, 2, 2), padding=(0, 0, 0), name="conv3")
+                conv3 = tf.nn.relu(conv3)
+                if input_action is not None:
+                    conv3 = tf.layers.flatten(conv3)
+                    conv3 = tf.concat([input_action, conv3], 1)
+                    if dense_layer:
+                        dense = tf.layers.dense(conv3, 50, activation=tf.nn.relu, name="dense/w")
+                        return dense
+            elif self.net_type == 'STG_3_demo_1':
+                """
+                STG_action V0.2 20180214
+                """
+                conv1 = conv3d(inputs, 60, (3, 7, 7), strides=(1, 3, 3), padding="SAME", name="conv1")
+                conv1 = tf.nn.relu(conv1)
+
+                conv2 = conv3d(conv1, 60, (3, 25, 25), strides=(1, 2, 3), padding=(0, 0, 0), name="conv2")
+                conv2 = tf.nn.relu(conv2)
+
+                conv3 = conv3d(conv2, 47, (1, 7, 15), strides=(1, 1, 1), padding=(0, 0, 0), name="conv3")
+                conv3 = tf.nn.relu(conv3)
+                if input_action is not None:
+                    conv3 = tf.layers.flatten(conv3)
+                    conv3 = tf.concat([input_action, conv3], 1)
+                    if dense_layer:
+                        dense = tf.layers.dense(conv3, 50, activation=tf.nn.relu, name="dense/w")
+                        return dense
+            elif self.net_type == 'STG_20180212':
+                """
+                STG_action V0.1 20180212
+                """
+                conv1 = conv3d_relu(inputs, 120, (3, 7, 7), strides=(1, 3, 3), padding="SAME", name="conv1")
+                conv2 = conv3d_relu(conv1, 30, (3, 25, 25), strides=(1, 2, 3), padding=(0, 0, 0), name="conv2")
+                conv3 = conv3d_relu(conv2, 15, (1, 7, 15), strides=(1, 2, 2), padding=(0, 0, 0), name="conv3")
+                if input_action is not None:
+                    conv3 = tf.layers.flatten(conv3)
+                    conv3 = tf.concat([input_action, conv3], 1)
+                    dense = tf.layers.dense(conv3, 50, activation=tf.nn.relu, name="dense/w")
+                    return dense
+            elif self.net_type == 'STG_5':
+                """
+                This is for small frame
+                """
+                conv1 = conv3d(inputs, 120, (3, 7, 7), strides=(1, 3, 3), padding="SAME", name="conv1")
+                conv1 = tf.nn.relu(conv1)
+                conv2 = conv3d(conv1, 30, (3, 30, 30), strides=(1, 2, 3), padding=(0, 0, 0), name="conv2")
+                conv2 = tf.nn.relu(conv2)
+                conv3 = conv3d(conv2, 5, (1, 6, 9), strides=(1, 2, 2), padding=(0, 0, 0), name="conv3")
+                conv3 = tf.nn.relu(conv3)
+            elif self.net_type == 'ST':
+                """
+                This is the spatial temporal model used for synthesizing dynamic textures with both spatial and temporal 
+                stationarity. e.g. sea, ocean.
+                """
+                conv1 = conv3d(inputs, 120, (15, 15, 15), strides=(7, 7, 7), padding="SAME", name="conv1")
+                conv1 = tf.nn.relu(conv1)
+
+                conv2 = conv3d(conv1, 40, (7, 7, 7), strides=(3, 3, 3), padding="SAME", name="conv2")
+                conv2 = tf.nn.relu(conv2)
+
+                conv3 = conv3d(conv2, 20, (2, 3, 3), strides=(1, 2, 2), padding="SAME", name="conv3")
+                conv3 = tf.nn.relu(conv3)
+            elif self.net_type == 'FC_S':
+                """
+                This is the spatial fully connected model used for synthesizing dynamic textures with only temporal 
+                stationarity with image size of 100. e.g. fire pot, flashing lights.
+                """
+                conv1 = conv3d(inputs, 120, (7, 7, 7), strides=(2, 2, 2), padding="SAME", name="conv1")
+                conv1 = tf.nn.relu(conv1)
+
+                conv2 = conv3d(conv1, 30, (5, 50, 50), strides=(2, 2, 2), padding=(2, 0, 0), name="conv2")
+                conv2 = tf.nn.relu(conv2)
+
+                conv3 = conv3d(conv2, 5, (2, 1, 1), strides=(1, 2, 2), padding=(1, 0, 0), name="conv3")
+                conv3 = tf.nn.relu(conv3)
+            elif self.net_type == 'FC_S_large':
+                """
+                This is the spatial fully connected model for images with size of 224.
+                """
+                conv1 = conv3d(inputs, 120, (7, 7, 7), strides=(3, 3, 3), padding="SAME", name="conv1")
+                conv1 = tf.nn.relu(conv1)
+
+                conv2 = conv3d(conv1, 30, (4, 75, 75), strides=(2, 1, 1), padding=(2, 0, 0), name="conv2")
+                conv2 = tf.nn.relu(conv2)
+
+                conv3 = conv3d(conv2, 5, (2, 1, 1), strides=(1, 1, 1), padding=(1, 0, 0), name="conv3")
+                conv3 = tf.nn.relu(conv3)
+            else:
+                return NotImplementedError
+            return conv3
 
     def train(self, train_img, train_label):
 
-        # if np.max(train_img) > 1:
-        #     train_img = train_img / 255
+        if np.max(train_img) > 1:
+            train_img = train_img / 255
         img_mean = train_img.mean()
         train_img = train_img - img_mean
         print(train_img.shape)
-        self.image_size = list(train_img.shape[1:])
 
-        self.obs = tf.placeholder(shape=[None] + self.image_size, dtype=tf.float32)
-        self.syn = tf.placeholder(shape=[self.num_chain] + self.image_size, dtype=tf.float32)
-        self.obs_action = tf.placeholder(shape=[None, self.action_size], dtype=tf.float32)
-        self.syn_action = tf.placeholder(shape=[self.num_chain, self.action_size], dtype=tf.float32)
-
-        obs_res = self.descriptor(self.obs, False, self.obs_action)
-        syn_res = self.descriptor(self.syn, True, self.syn_action)
-        train_loss = tf.subtract(tf.reduce_mean(syn_res,axis=0), tf.reduce_mean(obs_res,axis=0))
-
+        obs_res = self.descriptor(self.obs, False, self.obs_action, self.dense_layer)
+        syn_res = self.descriptor(self.syn, True, self.syn_action, self.dense_layer)
+        train_loss = tf.subtract(tf.reduce_mean(syn_res, axis=0), tf.reduce_mean(obs_res, axis=0))
         train_loss_mean, train_loss_update = tf.contrib.metrics.streaming_mean(train_loss)
-
         recon_err_mean_1, recon_err_update_1 = tf.contrib.metrics.streaming_mean_squared_error(
-            tf.reduce_mean(self.syn,axis=0),tf.reduce_mean(self.obs,axis=0))
+            tf.reduce_mean(self.syn, axis=0), tf.reduce_mean(self.obs, axis=0))
         recon_err_mean_2, recon_err_update_2 = tf.contrib.metrics.streaming_mean_squared_error(
             tf.reduce_mean(self.syn_action, axis=0), tf.reduce_mean(self.obs_action, axis=0))
 
         print('Network Established')
         dLdI = tf.gradients(syn_res, self.syn)[0]
         dLdI_action = tf.gradients(syn_res, self.syn_action)[0]
-
-
         num_batches = int(math.ceil(len(train_img) / self.batch_size))
 
         des_vars = [var for var in tf.trainable_variables() if var.name.startswith('des')]
@@ -142,7 +303,8 @@ class STGConvnet_discretize(object):
         update_grads = [accum_vars[i].assign_add(gv[0]) for i, gv in enumerate(grads_and_vars)]
         des_grads = [tf.reduce_mean(tf.abs(grad)) for (grad, var) in grads_and_vars if '/w' in var.name]
         # update by mean of gradients
-        apply_grads = optimizer.apply_gradients([(tf.divide(accum_vars[i], num_batches), gv[1]) for i, gv in enumerate(grads_and_vars)])
+        apply_grads = optimizer.apply_gradients(
+            [(tf.divide(accum_vars[i], num_batches), gv[1]) for i, gv in enumerate(grads_and_vars)])
 
         print('Initializing...')
 
@@ -150,16 +312,16 @@ class STGConvnet_discretize(object):
         self.sess.run(tf.local_variables_initializer())
 
         sample_size = self.num_chain * num_batches
-        sample_video = np.random.normal(size = [sample_size] + self.image_size)
+        sample_video = np.random.normal(size=[sample_size] + self.image_size)
+        sample_action = np.random.normal(scale=0.2, loc=0.3, size=[sample_size, self.action_size])
         if self.state_cold_start:
             for i in range(num_batches):
-                single_grid = train_img[i * self.batch_size:min(len(train_img), (i+1) * self.batch_size)]
-                single_grid = single_grid.mean(axis=0).mean(axis=(1,2), keepdims=1)\
+                single_grid = train_img[i * self.batch_size:min(len(train_img), (i + 1) * self.batch_size)]
+                single_grid = single_grid.mean(axis=0).mean(axis=(1, 2), keepdims=1) \
                     .repeat(train_img.shape[2], axis=1).repeat(train_img.shape[3], axis=2)
-                sample_video[i * self.num_chain:(i+1) * self.num_chain] = np.tile(single_grid, (self.num_chain,1,1,1,1))
-                final_save(sample_video + img_mean, self.category)
-
-        sample_action = np.random.normal(scale=0.2, loc=0.3, size = [sample_size, self.action_size])
+                sample_video[i * self.num_chain:(i + 1) * self.num_chain] = np.tile(single_grid,
+                                                                                    (self.num_chain, 1, 1, 1, 1))
+                final_save(sample_video + img_mean, sample_action, self.category)
 
         tf.summary.scalar('train_loss', train_loss_mean)
         tf.summary.scalar('reconstruction_error_image', recon_err_mean_1)
@@ -180,19 +342,19 @@ class STGConvnet_discretize(object):
             self.sess.run(reset_grads)
             for i in range(num_batches):
 
-                obs_data = train_img[i * self.batch_size:min(len(train_img), (i+1) * self.batch_size)]
-                obs_action = train_label[i * self.batch_size:min(len(train_label), (i+1) * self.batch_size)]
-                syn = sample_video[i * self.num_chain:(i+1) * self.num_chain]
-                syn_action = sample_action[i * self.num_chain:(i+1) * self.num_chain]
-                syn, syn_action = self.langevin_dynamics(syn, syn_action, dLdI, dLdI_action, i)
+                obs_data = train_img[i * self.batch_size:min(len(train_img), (i + 1) * self.batch_size)]
+                obs_action = train_label[i * self.batch_size:min(len(train_label), (i + 1) * self.batch_size)]
+                syn = sample_video[i * self.num_chain:(i + 1) * self.num_chain]
+                syn_action = sample_action[i * self.num_chain:(i + 1) * self.num_chain]
+                syn, syn_action = self.sess.run(langevin_both, feed_dict={self.syn: syn, self.syn_action: syn_action})
                 grad = self.sess.run([des_grads, update_grads, train_loss_update],
                                      feed_dict={self.obs: obs_data, self.obs_action: obs_action,
                                                 self.syn: syn, self.syn_action: syn_action})[0]
                 self.sess.run(recon_err_update_1, feed_dict={self.obs: obs_data, self.syn: syn})
                 self.sess.run(recon_err_update_2, feed_dict={self.obs_action: obs_action, self.syn_action: syn_action})
-                if self.state_cold_start==0:
+                if self.state_cold_start == 0:
                     sample_video[i * self.num_chain:(i + 1) * self.num_chain] = syn
-                if self.action_cold_start==0:
+                if self.action_cold_start == 0:
                     sample_action[i * self.num_chain:(i + 1) * self.num_chain] = syn_action
 
                 gradients.append(np.mean(grad))
@@ -201,34 +363,95 @@ class STGConvnet_discretize(object):
             self.sess.run(apply_grads)
             [loss, re1, re2, summary] = self.sess.run([train_loss_mean, recon_err_mean_1, recon_err_mean_2, summary_op])
             print('Epoch #%d, loss: %.4f, SSD w: %4.4f, Avg MSE (img, action): (%4.4f, %4.4f)'
-                  % (epoch, loss, float(np.mean(gradients)), re1, re2))
+                  % (epoch, loss, float(np.mean(gradients)), re1 * 256 * 256, re2 * 256 * 256))
             writer.add_summary(summary, epoch)
 
             if epoch % self.log_step == 0:
                 if not os.path.exists(self.model_dir):
                     os.makedirs(self.model_dir)
                 saver.save(self.sess, "%s/%s" % (self.model_dir, 'model.ckpt'), global_step=epoch)
-                saveSampleVideo(sample_video + img_mean, self.result_dir, global_step=epoch)
-                mp.hist(sample_action)
-                mp.savefig(self.result_dir + "/action_%03d.png" % epoch)
+                saveSampleVideo(syn + img_mean, self.result_dir, global_step=epoch)
+                mp.hist(syn_action)
+                mp.savefig(os.path.join(self.result_dir, 'action_%03d.png' % epoch))
 
         print('Finished!!!!!!')
         saver.save(self.sess, "%s/%s" % (self.model_dir, 'model.ckpt'), global_step=self.num_epochs)
         final_save(sample_video + img_mean, sample_action, self.category)
+        np.save(os.path.join(self.output_dir, 'sample_video'), sample_video)
+        np.save(os.path.join(self.output_dir, 'sample_action'), sample_action)
+        np.save(os.path.join(self.output_dir, 'gradients'), gradients)
 
+    def evaluate(self, obs_res, images, method=1):
 
-    def test(self, model_path, test_img, test_label):
+        energy = np.empty((16, 16, 16))
+        for i, j, k in xcrange(16, 16, 16):
+            action_d = np.tile([i, j, k], (images.shape[0], 1)).astype(float) / 8
+            a = self.sess.run(obs_res, feed_dict={self.obs: images, self.obs_action: action_d})
+            energy[i, j, k] = a[0, 0]
+        energy_0 = np.sum(energy, axis=(1, 2))
+        energy_1 = np.sum(energy, axis=(0, 2))
+        energy_2 = np.sum(energy, axis=(0, 1))
+        mp.plot(range(0, 255, 16), energy_0)
+        mp.plot(range(0, 255, 16), energy_1)
+        mp.plot(range(0, 255, 16), energy_2)
+        mp.savefig('evaluate.png')
 
+    def test(self, model_path, test_img, test_label, output_image=True):
+
+        tf.set_random_seed(1234)
         n_test = test_img.shape[0]
         assert (n_test == test_label.shape[0]), "Img and Label size mismatch."
-
         self.image_size = list(test_img.shape[1:])
-        print(self.image_size)
-        # Create some variables.
+
         self.obs = tf.placeholder(shape=[None] + self.image_size, dtype=tf.float32)
-        self.syn = tf.placeholder(shape=[n_test] + self.image_size, dtype=tf.float32)
+        self.syn = tf.placeholder(shape=[None] + self.image_size, dtype=tf.float32)
         self.obs_action = tf.placeholder(shape=[None, self.action_size], dtype=tf.float32)
-        self.syn_action = tf.placeholder(shape=[n_test, self.action_size], dtype=tf.float32)
+        self.syn_action = tf.placeholder(shape=[None, self.action_size], dtype=tf.float32)
+        obs_res = self.descriptor(self.obs, False, self.obs_action, self.dense_layer)
+        syn_res = self.descriptor(self.syn, True, self.syn_action, self.dense_layer)
+        dLdI = tf.gradients(syn_res, self.syn)[0]
+        dLdI_action = tf.gradients(syn_res, self.syn_action)[0]
+        self.sess.run(tf.global_variables_initializer())
+
+        sample_action = np.random.normal(size=[n_test, self.action_size])
+        saver = tf.train.Saver()
+        self.pbar = None
+
+        saver.restore(self.sess, model_path)
+        print("%s loaded, start testing..." % model_path)
+        self.evaluate(obs_res, test_img[0:1, ...])
+        mp.clf()
+        test_img, predicted_action = self.lang(test_img, sample_action, dLdI, dLdI_action, -1, False, True)
+        energy = self.sess.run(obs_res, feed_dict={self.obs: test_img, self.obs_action: predicted_action})
+        score = evaluate_direct(predicted_action, test_label)
+        print(score)
+        if output_image:
+            data = {'score': score, 'energy': energy, 'predicted_action': predicted_action, 'train_label': test_label}
+            np.save('test', data)
+            mp.plot(test_label[:, 0], 'r')
+            mp.plot(test_label[:, 1], 'b')
+            mp.plot(test_label[:, 2], 'g')
+            mp.savefig('true_action.png')
+            mp.clf()
+            mp.plot(predicted_action[:, 0], 'r')
+            mp.plot(predicted_action[:, 1], 'b')
+            mp.plot(predicted_action[:, 2], 'g')
+            mp.savefig('predicted_action.png')
+        return score, energy, predicted_action
+
+    def test2(self, sess, train_img, train_label, model_path):
+
+        # if np.max(train_img) > 1:
+        #     train_img = train_img / 255
+        img_mean = train_img.mean()
+        train_img = train_img - img_mean
+        print(train_img.shape)
+        self.image_size = list(train_img.shape[1:])
+
+        self.obs = tf.placeholder(shape=[None] + self.image_size, dtype=tf.float32)
+        self.syn = tf.placeholder(shape=[self.num_chain] + self.image_size, dtype=tf.float32)
+        self.obs_action = tf.placeholder(shape=[None, self.action_size], dtype=tf.float32)
+        self.syn_action = tf.placeholder(shape=[self.num_chain, self.action_size], dtype=tf.float32)
 
         obs_res = self.descriptor(self.obs, False, self.obs_action, self.dense_layer)
         syn_res = self.descriptor(self.syn, True, self.syn_action, self.dense_layer)
@@ -236,22 +459,62 @@ class STGConvnet_discretize(object):
         print('Network Established')
         dLdI = tf.gradients(syn_res, self.syn)[0]
         dLdI_action = tf.gradients(syn_res, self.syn_action)[0]
-        sample_action = np.random.normal(size=[n_test, self.action_size])
+
+        num_batches = int(math.ceil(len(train_img) / self.batch_size))
+
+        print('Initializing...')
+
         self.sess.run(tf.global_variables_initializer())
-        self.sess.run(tf.local_variables_initializer())
-        # Add ops to save and restore all the variables.
-        saver = tf.train.import_meta_graph(model_path + '.meta')
-        self.pbar = None
 
-        with tf.Session() as sess:
-            saver.restore(sess, model_path)
-            print("Model loaded, start testing...")
+        sample_size = self.num_chain * num_batches
+        sample_video = np.random.normal(size=[sample_size] + self.image_size)
+        sample_action = np.random.normal(scale=0.2, loc=0.3, size=[sample_size, self.action_size])
+        if self.state_cold_start:
+            for i in range(num_batches):
+                single_grid = train_img[i * self.batch_size:min(len(train_img), (i + 1) * self.batch_size)]
+                single_grid = single_grid.mean(axis=0).mean(axis=(1, 2), keepdims=1) \
+                    .repeat(train_img.shape[2], axis=1).repeat(train_img.shape[3], axis=2)
+                sample_video[i * self.num_chain:(i + 1) * self.num_chain] = np.tile(single_grid,
+                                                                                    (self.num_chain, 1, 1, 1, 1))
+                final_save(sample_video + img_mean, sample_action, self.category)
 
-            test_img, predicted_action = self.langevin_dynamics(test_img, sample_action, dLdI, dLdI_action, -1, False, True)
-            energy = self.sess.run(syn_res, feed_dict={self.syn: test_img, self.syn_action: predicted_action})
-            energy = np.sum(energy, axis=1)
-            score = evaluate_direct(predicted_action, test_label)
-            print(score)
-            return score, energy, predicted_action
+        saver = tf.train.Saver(max_to_keep=50)
+
+        saver.restore(sess, model_path)
+        print("%s loaded, start testing..." % model_path)
+
+        gradients = []
+
+        widgets = ["Testing #|", Percentage(), Bar(), ETA()]
+        self.pbar = ProgressBar(maxval=num_batches * self.sample_steps, widgets=widgets)
+        self.pbar.start()
+
+        for i in range(num_batches):
+
+            obs_data = train_img[i * self.batch_size:min(len(train_img), (i + 1) * self.batch_size)]
+            obs_action = train_label[i * self.batch_size:min(len(train_label), (i + 1) * self.batch_size)]
+            syn = sample_video[i * self.num_chain:(i + 1) * self.num_chain]
+            syn_action = sample_action[i * self.num_chain:(i + 1) * self.num_chain]
+            syn, syn_action = self.langevin_dynamics(syn, syn_action, dLdI, dLdI_action, i)
+            if self.state_cold_start == 0:
+                sample_video[i * self.num_chain:(i + 1) * self.num_chain] = syn
+            if self.action_cold_start == 0:
+                sample_action[i * self.num_chain:(i + 1) * self.num_chain] = syn_action
+
+        self.pbar.finish()
+
+        if not os.path.exists(self.model_dir):
+            os.makedirs(self.model_dir)
+        saveSampleVideo(syn + img_mean, self.result_dir, global_step=0)
+        mp.hist(syn_action)
+        mp.savefig(os.path.join(self.result_dir, 'action_%03d.png' % 0))
+
+        print('Finished!!!!!!')
+        # saver.save(self.sess, "%s/%s" % (self.model_dir, 'model.ckpt'), global_step=self.num_epochs)
+        final_save(sample_video + img_mean, sample_action, self.category)
+        np.save(os.path.join(self.output_dir, 'sample_video'), sample_video)
+        np.save(os.path.join(self.output_dir, 'sample_action'), sample_action)
+        np.save(os.path.join(self.output_dir, 'gradients'), gradients)
+
 
 
